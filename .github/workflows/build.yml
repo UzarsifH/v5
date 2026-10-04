@@ -1,0 +1,52 @@
+name: Build Android APK
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      BUILD_ID: v5-${{ github.run_number }}
+      VERSION_CODE: ${{ github.run_number }}
+      KEYSTORE_PATH: /home/runner/forja-release.jks
+      KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+      KEY_ALIAS: forja
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check signing key
+        run: |
+          if [ -z "${{ secrets.KEYSTORE_BASE64 }}" ]; then echo "KEYSTORE_BASE64 secret is missing"; exit 1; fi
+          echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > $KEYSTORE_PATH
+      - name: Unzip project
+        run: unzip -q forja-app-v5.zip
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        working-directory: forja-app
+        run: npm install --no-audit --no-fund
+      - name: Artwork
+        working-directory: forja-app
+        run: |
+          pip install pillow numpy
+          python scripts/make-exercises.py
+          python scripts/seed-photos.py
+      - name: Create Android project
+        working-directory: forja-app
+        run: npm run android:init
+      - name: Build release APK
+        working-directory: forja-app/android
+        run: ./gradlew assembleRelease --no-daemon
+      - uses: actions/upload-artifact@v4
+        with:
+          name: forja-release-${{ env.BUILD_ID }}
+          path: forja-app/android/app/build/outputs/apk/release/app-release.apk
+          if-no-files-found: error
